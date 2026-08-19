@@ -1,0 +1,43 @@
+{
+  "cell": "c_0.01_43_16",
+  "bbox": [-73.57, 45.50, -73.56, 45.51],
+  "unit_count": 2,
+  "footprint_count": 1,
+  "features": [
+    {
+      "g": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-73.568, 45.502],
+          [-73.562, 45.502],
+          [-73.562, 45.507],
+          [-73.568, 45.507],
+          [-73.568, 45.502]
+        ]]
+      },
+      "ids": ["1001", "1002"],
+      "u": [
+        {
+          "id": "1001",
+          "src": {
+            "ID_UEV": 1001,
+            "NOM_RUE": "rue Sainte-Catherine Ouest",
+            "CODE_UTILISATION": "1000",
+            "LIBELLE_UTILISATION": "Logement",
+            "CATEGORIE_UEF": "Condominium"
+          }
+        },
+        {
+          "id": "1002",
+          "src": {
+            "ID_UEV": 1002,
+            "NOM_RUE": "rue Sainte-Catherine Ouest",
+            "CODE_UTILISATION": "1000",
+            "LIBELLE_UTILISATION": "Logement",
+            "CATEGORIE_UEF": "Condominium"
+          }
+        }
+      ]
+    }
+  ]
+}

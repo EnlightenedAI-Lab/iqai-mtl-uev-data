@@ -19,7 +19,15 @@ Contract for World Object Acquisition. This repository does not modify that engi
 
 Use `createSelectableObjectSource({ baseUrl })` from `src/runtime/evaluation-units-source.js`.
 
-`toAcquiredObject(feature)` returns:
+Viewport queries use the **display** fabric (simplified geometry, stable representative `ID_UEV`).
+
+Exact resolution:
+
+- `source.getById(id)`
+- `selectable.acquire(id)` — preferred handoff
+- `queryByGeometry` / `queryEvaluationUnitsWithinGeometry` — exact source geometry and original publisher attributes
+
+`toAcquiredObject(feature)` is for an **exact** feature (after `getById` / `acquire` / geometry query). It returns:
 
 - objectClass
 - sourceId (`ID_UEV`)

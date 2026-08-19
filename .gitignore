@@ -1,5 +1,6 @@
 cache/
 dist/
+delivery/
 _site/
 __pycache__/
 .pytest_cache/

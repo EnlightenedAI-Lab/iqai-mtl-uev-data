@@ -1,4 +1,4 @@
-import { createEvaluationUnitSource } from "./evaluation-units-source.js";
+import { createEvaluationUnitSource, createSelectableObjectSource } from "./evaluation-units-source.js";
 
 const DATA_BASE =
   globalThis.IQAI_MTL_UEV_DATA_BASE_URL ||
@@ -6,6 +6,7 @@ const DATA_BASE =
   "./data";
 
 const source = createEvaluationUnitSource({ baseUrl: DATA_BASE });
+const selectable = createSelectableObjectSource({ baseUrl: DATA_BASE });
 const statsEl = document.getElementById("stats");
 const selectedEl = document.getElementById("selected");
 const provenanceEl = document.getElementById("provenance");
@@ -18,12 +19,11 @@ source.getProvenance().then((prov) => dump(provenanceEl, prov || "provenance.jso
   dump(provenanceEl, String(err));
 });
 
-globalThis.require(["esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer", "esri/Graphic", "esri/geometry/Polygon", "esri/geometry/support/webMercatorUtils"], (
+globalThis.require(["esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer", "esri/Graphic", "esri/geometry/support/webMercatorUtils"], (
   Map,
   MapView,
   GraphicsLayer,
   Graphic,
-  Polygon,
   webMercatorUtils,
 ) => {
   const layer = new GraphicsLayer({ title: "Evaluation units" });
@@ -36,7 +36,6 @@ globalThis.require(["esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer
     constraints: { rotationEnabled: false },
   });
 
-  const byId = new Map();
   let timer = null;
   let controller = null;
 
@@ -44,6 +43,7 @@ globalThis.require(["esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer
     const rings = feature.geometry.type === "Polygon"
       ? feature.geometry.coordinates
       : feature.geometry.coordinates.flat();
+    const fill = Boolean(feature.properties.fill);
     return new Graphic({
       geometry: {
         type: "polygon",
@@ -51,15 +51,18 @@ globalThis.require(["esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer
         spatialReference: { wkid: 4326 },
       },
       attributes: {
-        source_id: feature.properties.source_id,
-        street: feature.properties.street,
-        cubf_label: feature.properties.cubf_label,
-        category: feature.properties.category,
+        source_id: feature.properties.source_id || null,
+        fill,
+        layer: feature.properties.layer,
       },
       symbol: {
         type: "simple-fill",
-        color: feature.properties.stacked ? [247, 201, 72, 0.18] : [91, 163, 230, 0.16],
-        outline: { color: [186, 220, 255, 0.9], width: 0.8 },
+        color: fill
+          ? [91, 163, 230, 0.10]
+          : feature.properties.stacked
+            ? [247, 201, 72, 0.18]
+            : [91, 163, 230, 0.16],
+        outline: { color: fill ? [91, 163, 230, 0.35] : [186, 220, 255, 0.9], width: fill ? 0.4 : 0.8 },
       },
     });
   }
@@ -73,21 +76,21 @@ globalThis.require(["esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer
       const result = await source.queryEvaluationUnits(extent, { signal: controller.signal });
       if (result.stale) return;
       layer.removeAll();
-      byId.clear();
       for (const feature of result.features) {
-        const graphic = graphicFromFeature(feature);
-        byId.set(feature.properties.source_id, feature);
-        layer.add(graphic);
+        layer.add(graphicFromFeature(feature));
       }
       dump(statsEl, {
-        cellsRequested: result.cellsRequested,
-        cellsFetched: result.cellsFetched,
-        cellsCached: result.cellsCached,
+        fabric: result.fabric,
+        layer: result.layer,
+        cellsRequested: result.cellsRequested.length,
+        cellsFetched: result.cellsFetched.length,
+        cellsCached: result.cellsCached.length,
         bytes: result.bytes,
-        features: result.count,
+        featuresDecoded: result.featuresDecoded,
         ms: Math.round(performance.now() - started),
         cacheSize: source.cacheSize(),
         bbox: result.bbox,
+        note: result.note,
       });
     } catch (err) {
       if (err?.name === "AbortError") return;
@@ -102,27 +105,38 @@ globalThis.require(["esri/Map", "esri/views/MapView", "esri/layers/GraphicsLayer
   view.when(refresh);
 
   view.on("click", (event) => {
-    view.hitTest(event).then((hit) => {
-      const graphic = hit.results.find((r) => r.graphic?.attributes?.source_id)?.graphic;
-      if (!graphic) {
-        dump(selectedEl, "no unit");
+    view.hitTest(event).then(async (hit) => {
+      const graphic = hit.results.find((r) => r.graphic?.attributes)?.graphic;
+      if (!graphic || graphic.attributes.fill || !graphic.attributes.source_id) {
+        dump(selectedEl, graphic?.attributes?.fill
+          ? "overview fill — zoom in for selectable ID_UEV"
+          : "no unit");
         return;
       }
-      const feature = byId.get(graphic.attributes.source_id);
-      dump(selectedEl, {
-        objectClass: feature.properties.object_class,
-        sourceId: feature.properties.source_id,
-        sourceIdField: feature.properties.source_id_field,
-        address: [feature.properties.civic_from, feature.properties.street, feature.properties.suite].filter(Boolean).join(" "),
-        cubf: `${feature.properties.cubf_code || ""} ${feature.properties.cubf_label || ""}`.trim(),
-        category: feature.properties.category,
-        stacked: feature.properties.stacked,
-        stackCount: feature.properties.stack_count,
-        source: feature.properties.source,
-        derived: feature.properties.derived,
-        provenance: feature.properties.provenance,
-        legalNote: "Municipal evaluation unit. Not legal cadastre and not proof of ownership.",
-      });
+      dump(selectedEl, "resolving exact ID_UEV…");
+      try {
+        const resolved = await source.getById(graphic.attributes.source_id);
+        if (!resolved) {
+          dump(selectedEl, `no exact object for ${graphic.attributes.source_id}`);
+          return;
+        }
+        const acquired = selectable.toAcquiredObject(resolved.feature);
+        const props = resolved.feature.properties;
+        dump(selectedEl, {
+          objectClass: acquired.objectClass,
+          sourceId: acquired.sourceId,
+          sourceIdField: "ID_UEV",
+          fabric: "exact",
+          stacked: props.stacked,
+          stackCount: props.stack_count,
+          cubf: `${props.cubf_code || ""} ${props.cubf_label || ""}`.trim(),
+          sourceAttributes: acquired.sourceAttributes,
+          provenance: acquired.provenance,
+          legalNote: acquired.legalNote,
+        });
+      } catch (err) {
+        dump(selectedEl, String(err));
+      }
     });
   });
 });

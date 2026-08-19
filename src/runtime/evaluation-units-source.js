@@ -1,9 +1,12 @@
 /**
- * Viewport and geometry queries against the static Montréal evaluation-unit package.
+ * Dual-fabric runtime for the static Montréal evaluation-unit package.
+ * Display cells draw the map. Exact cells resolve ID_UEV, geometry, and source attributes.
  * Works in the browser and in Node. Does not load the citywide file.
  */
 
 const OBJECT_CLASS = "evaluation_unit";
+const LEGAL_NOTE =
+  "Municipal evaluation unit. Not legal cadastre and not proof of ownership.";
 
 function bboxIntersects(a, b) {
   return !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
@@ -111,48 +114,129 @@ function geometryHitsPolygon(geom, polygon) {
   return Boolean(c && rings.some((ring) => pointInRing(c[0], c[1], ring)));
 }
 
-function expandUnits(cellFc, provenance, objectClass) {
+function isGzipBuffer(bytes) {
+  return bytes?.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
+
+async function gunzipBytes(bytes) {
+  if (typeof DecompressionStream === "function") {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  const zlib = await import("node:zlib");
+  const { promisify } = await import("node:util");
+  return new Uint8Array(await promisify(zlib.gunzip)(bytes));
+}
+
+function decodeJsonBytes(bytes) {
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function idShard(id) {
+  return String(id).slice(-2).padStart(2, "0");
+}
+
+function displayLayerForBbox(manifest, bbox) {
+  const layers = [...(manifest?.fabrics?.display?.layers || [])].sort(
+    (a, b) => Number(b.min_span || 0) - Number(a.min_span || 0),
+  );
+  if (!layers.length) return null;
+  const span = Number(bbox[2]) - Number(bbox[0]);
+  return layers.find((layer) => span >= Number(layer.min_span || 0)) || layers[layers.length - 1];
+}
+
+export function cellsForBbox(manifestOrCells, bbox) {
+  const cells = Array.isArray(manifestOrCells)
+    ? manifestOrCells
+    : manifestOrCells?.cells ||
+      manifestOrCells?.fabrics?.exact?.cells ||
+      [];
+  return cells.filter((cell) => bboxIntersects(cell.bbox, bbox));
+}
+
+function expandExactUnits(cellJson, provenance, objectClass) {
   const features = [];
-  for (const feature of cellFc.features || []) {
-    const props = feature.properties || {};
-    for (const unit of props.units || []) {
+  for (const rec of cellJson.features || []) {
+    const geom = rec.g || rec.geometry;
+    const units = rec.u || rec.units || [];
+    const ids = rec.ids || units.map((unit) => unit.id || unit.source_id);
+    for (const unit of units) {
+      const source = unit.src || unit.source || {};
+      const sourceId = String(unit.id || unit.source_id || source.ID_UEV || "");
+      if (!sourceId) continue;
       features.push({
         type: "Feature",
-        geometry: feature.geometry,
+        geometry: geom,
         properties: {
           object_class: objectClass,
-          object_class_label: props.object_class_label,
-          source_id: unit.source_id,
-          source_id_field: unit.source_id_field,
-          stacked: Boolean(props.stacked),
-          stack_count: props.unit_count,
-          stack_source_ids: props.source_ids,
-          cubf_code: unit.cubf_code,
-          cubf_label: unit.cubf_label,
-          category: unit.category,
-          civic_from: unit.civic_from,
-          civic_to: unit.civic_to,
-          street: unit.street,
-          suite: unit.suite,
-          storeys: unit.storeys,
-          dwellings: unit.dwellings,
-          year_built: unit.year_built,
-          land_area_m2: unit.land_area_m2,
-          building_area_m2: unit.building_area_m2,
-          municipality_code: unit.municipality_code,
-          municipality_name: unit.municipality_name,
-          borough_code: unit.borough_code,
-          matricule83: unit.matricule83,
-          source: unit.source,
+          object_class_label: "EVALUATION UNIT",
+          source_id: sourceId,
+          source_id_field: "ID_UEV",
+          stacked: ids.length > 1,
+          stack_count: ids.length,
+          stack_source_ids: ids,
+          cubf_code: source.CODE_UTILISATION ?? null,
+          cubf_label: source.LIBELLE_UTILISATION ?? null,
+          category: source.CATEGORIE_UEF ?? null,
+          civic_from: source.CIVIQUE_DEBUT ?? null,
+          civic_to: source.CIVIQUE_FIN ?? null,
+          street: source.NOM_RUE ?? null,
+          suite: source.SUITE_DEBUT ?? null,
+          source,
           derived: {
-            stack_count: props.unit_count,
-            stack_source_ids: props.source_ids,
-            municipality_name: unit.municipality_name,
+            stack_count: ids.length,
+            stack_source_ids: ids,
+            fabric: "exact",
           },
+          fabric: "exact",
           provenance,
         },
       });
     }
+  }
+  return features;
+}
+
+function expandDisplayCell(cellJson, provenance, objectClass, layerId) {
+  const features = [];
+  if (cellJson.fill) {
+    features.push({
+      type: "Feature",
+      geometry: cellJson.fill,
+      properties: {
+        object_class: objectClass,
+        fabric: "display",
+        fill: true,
+        selectable: false,
+        layer: layerId,
+        cell: cellJson.id,
+        provenance,
+      },
+    });
+  }
+  for (const rec of cellJson.features || []) {
+    const geom = rec.g || rec.geometry;
+    if (!geom) continue;
+    const n = Number(rec.n || 1);
+    features.push({
+      type: "Feature",
+      geometry: geom,
+      properties: {
+        object_class: objectClass,
+        object_class_label: "EVALUATION UNIT",
+        source_id: rec.i != null ? String(rec.i) : null,
+        source_id_field: "ID_UEV",
+        stacked: n > 1,
+        stack_count: n,
+        exact_cell: rec.c || null,
+        fabric: "display",
+        fill: false,
+        selectable: Boolean(rec.i),
+        layer: layerId,
+        cell: cellJson.id,
+        provenance,
+      },
+    });
   }
   return features;
 }
@@ -177,10 +261,6 @@ function cubfRollup(features) {
   );
 }
 
-export function cellsForBbox(manifest, bbox) {
-  return (manifest.cells || []).filter((cell) => bboxIntersects(cell.bbox, bbox));
-}
-
 export function createEvaluationUnitSource(options = {}) {
   const baseUrl = String(options.baseUrl || "").replace(/\/+$/, "");
   if (!baseUrl) throw new Error("baseUrl is required");
@@ -198,59 +278,96 @@ export function createEvaluationUnitSource(options = {}) {
     const res = await fetchImpl(url, { signal });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     const headerBytes = Number(res.headers.get("content-length") || 0);
-    const json = await res.json();
-    return { json, bytes: headerBytes || JSON.stringify(json).length, url };
+    const buf = new Uint8Array(await res.arrayBuffer());
+    const transferBytes = headerBytes || buf.byteLength;
+    let json;
+    if (isGzipBuffer(buf) || path.endsWith(".gz")) {
+      json = decodeJsonBytes(isGzipBuffer(buf) ? await gunzipBytes(buf) : buf);
+    } else {
+      json = decodeJsonBytes(buf);
+    }
+    return { json, bytes: transferBytes, url };
+  }
+
+  async function cachedJson(key, path, signal) {
+    if (cache.has(key)) return { ...cache.get(key), cached: true };
+    if (inflight.has(key)) return { ...(await inflight.get(key)), cached: true };
+    const pending = loadJson(path, signal)
+      .then((loaded) => {
+        const row = { id: key, json: loaded.json, bytes: loaded.bytes, url: loaded.url };
+        cache.set(key, row);
+        inflight.delete(key);
+        return row;
+      })
+      .catch((err) => {
+        inflight.delete(key);
+        throw err;
+      });
+    inflight.set(key, pending);
+    return { ...(await pending), cached: false };
   }
 
   async function getManifest() {
-    if (!manifestPromise) manifestPromise = loadJson("manifest.json").then((row) => row.json);
+    if (!manifestPromise) {
+      manifestPromise = cachedJson("manifest.json", "manifest.json").then((row) => row.json);
+    }
     return manifestPromise;
   }
 
   async function getProvenance() {
     if (!provenancePromise) {
-      provenancePromise = loadJson("provenance.json")
+      provenancePromise = cachedJson("provenance.json", "provenance.json")
         .then((row) => row.json)
         .catch(() => null);
     }
     return provenancePromise;
   }
 
-  async function getCell(cell, signal) {
-    if (cache.has(cell.id)) return { ...cache.get(cell.id), cached: true };
-    if (inflight.has(cell.id)) return { ...(await inflight.get(cell.id)), cached: true };
-    const pending = loadJson(cell.path, signal)
-      .then((loaded) => {
-        const row = { id: cell.id, json: loaded.json, bytes: loaded.bytes, url: loaded.url };
-        cache.set(cell.id, row);
-        inflight.delete(cell.id);
-        return row;
-      })
-      .catch((err) => {
-        inflight.delete(cell.id);
-        throw err;
-      });
-    inflight.set(cell.id, pending);
-    return { ...(await pending), cached: false };
-  }
-
-  async function queryCells(bbox, signal) {
-    const [manifest, provenance] = await Promise.all([getManifest(), getProvenance()]);
-    const wanted = cellsForBbox(manifest, bbox);
+  async function loadCells(cells, signal) {
     const loaded = [];
     let bytes = 0;
     let cacheHits = 0;
-    for (const cell of wanted) {
-      const row = await getCell(cell, signal);
-      loaded.push(row);
+    for (const cell of cells) {
+      const row = await cachedJson(cell.path || cell.id, cell.path, signal);
+      loaded.push({ ...row, id: cell.id });
       bytes += row.bytes || 0;
       if (row.cached) cacheHits += 1;
     }
+    return { loaded, bytes, cacheHits };
+  }
+
+  async function queryDisplay(bbox, signal) {
+    const [manifest, provenance] = await Promise.all([getManifest(), getProvenance()]);
+    const layer = displayLayerForBbox(manifest, bbox);
+    if (!layer) throw new Error("manifest has no display layers");
+    const wanted = cellsForBbox(layer.cells || [], bbox);
+    const packed = await loadCells(wanted, signal);
+    const objectClass = manifest.object_class || OBJECT_CLASS;
     const seen = new Set();
     const features = [];
+    for (const row of packed.loaded) {
+      for (const feature of expandDisplayCell(row.json, provenance, objectClass, layer.id)) {
+        if (!geometryHitsBbox(feature.geometry, bbox)) continue;
+        const key = feature.properties.fill
+          ? `fill:${row.id}`
+          : `u:${feature.properties.source_id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        features.push(feature);
+      }
+    }
+    return { manifest, provenance, layer, wanted, ...packed, features };
+  }
+
+  async function queryExactCells(bbox, signal) {
+    const [manifest, provenance] = await Promise.all([getManifest(), getProvenance()]);
+    const wanted = cellsForBbox(manifest.fabrics?.exact?.cells || [], bbox);
+    const packed = await loadCells(wanted, signal);
     const objectClass = manifest.object_class || OBJECT_CLASS;
-    for (const row of loaded) {
-      for (const feature of expandUnits(row.json, provenance, objectClass)) {
+    const seen = new Set();
+    const features = [];
+    for (const row of packed.loaded) {
+      for (const feature of expandExactUnits(row.json, provenance, objectClass)) {
         const id = feature.properties.source_id;
         if (seen.has(id)) continue;
         if (!geometryHitsBbox(feature.geometry, bbox)) continue;
@@ -258,14 +375,31 @@ export function createEvaluationUnitSource(options = {}) {
         features.push(feature);
       }
     }
+    return { manifest, provenance, wanted, ...packed, features };
+  }
+
+  async function getById(id, queryOptions = {}) {
+    const sourceId = String(id ?? "");
+    if (!sourceId) throw new Error("id is required");
+    const [manifest, provenance] = await Promise.all([getManifest(), getProvenance()]);
+    const shardPath = `exact/ids/${idShard(sourceId)}.json`;
+    const shard = await cachedJson(shardPath, shardPath, queryOptions.signal);
+    const cellId = shard.json[sourceId];
+    if (!cellId) return null;
+    const cell = (manifest.fabrics?.exact?.cells || []).find((row) => row.id === cellId);
+    if (!cell) return null;
+    const loaded = await cachedJson(cell.path, cell.path, queryOptions.signal);
+    const objectClass = manifest.object_class || OBJECT_CLASS;
+    const feature = expandExactUnits(loaded.json, provenance, objectClass).find(
+      (row) => row.properties.source_id === sourceId,
+    );
+    if (!feature) return null;
     return {
-      manifest,
+      feature,
+      cellId,
+      bytes: (shard.cached ? 0 : shard.bytes) + (loaded.cached ? 0 : loaded.bytes),
       provenance,
-      wanted,
-      loaded,
-      cacheHits,
-      bytes,
-      features,
+      legalNote: manifest.legal_note || LEGAL_NOTE,
     };
   }
 
@@ -273,37 +407,44 @@ export function createEvaluationUnitSource(options = {}) {
     objectClass: OBJECT_CLASS,
     getManifest,
     getProvenance,
+    getById,
     cacheSize() {
       return cache.size;
     },
+    displayLayerForBbox,
     async queryEvaluationUnits(extent, queryOptions = {}) {
       const bbox = extentToBbox(extent);
       const gen = ++viewportGen;
-      const result = await queryCells(bbox, queryOptions.signal);
+      const result = await queryDisplay(bbox, queryOptions.signal);
       if (queryOptions.viewport !== false && gen !== viewportGen) {
         return { stale: true, features: [], count: 0, cellsRequested: result.wanted.map((c) => c.id), bytes: 0 };
       }
       return {
         stale: false,
+        fabric: "display",
+        layer: result.layer.id,
         objectClass: result.manifest.object_class,
         bbox,
         features: result.features,
         count: result.features.length,
+        featuresDecoded: result.features.length,
         cellsRequested: result.wanted.map((c) => c.id),
         cellsFetched: result.loaded.filter((row) => !row.cached).map((row) => row.id),
         cellsCached: result.loaded.filter((row) => row.cached).map((row) => row.id),
         cacheHits: result.cacheHits,
         bytes: result.bytes,
         provenance: result.provenance,
-        legalNote: result.manifest.legal_note,
+        legalNote: result.manifest.legal_note || LEGAL_NOTE,
+        note: "Viewport uses simplified display geometry. Exact source geometry is fetched only on demand.",
       };
     },
     async queryEvaluationUnitsWithinGeometry(geometry, queryOptions = {}) {
       const bbox = geomBbox(geometry);
       if (!bbox) throw new Error("geometry has no coordinates");
-      const result = await queryCells(bbox, queryOptions.signal);
+      const result = await queryExactCells(bbox, queryOptions.signal);
       const features = result.features.filter((feature) => geometryHitsPolygon(feature.geometry, geometry));
       return {
+        fabric: "exact",
         objectClass: result.manifest.object_class,
         geometry,
         bbox,
@@ -316,7 +457,7 @@ export function createEvaluationUnitSource(options = {}) {
         cellsCached: result.loaded.filter((row) => row.cached).map((row) => row.id),
         bytes: result.bytes,
         provenance: result.provenance,
-        legalNote: result.manifest.legal_note,
+        legalNote: result.manifest.legal_note || LEGAL_NOTE,
         note: "CUBF aggregation uses official CODE_UTILISATION / LIBELLE_UTILISATION only. No population or socioeconomic estimates.",
       };
     },
@@ -335,9 +476,14 @@ export function createSelectableObjectSource(options = {}) {
     identityField: "source_id",
     overlap: "container",
     selectable: true,
-    legalNote: "Municipal evaluation unit. Not legal cadastre and not proof of ownership.",
+    legalNote: LEGAL_NOTE,
     queryByExtent: (extent, opts) => source.queryEvaluationUnits(extent, opts),
     queryByGeometry: (geometry, opts) => source.queryEvaluationUnitsWithinGeometry(geometry, opts),
+    async acquire(sourceId, opts) {
+      const resolved = await source.getById(sourceId, opts);
+      if (!resolved) return null;
+      return this.toAcquiredObject(resolved.feature);
+    },
     toAcquiredObject(feature) {
       const props = feature?.properties || {};
       return {
@@ -348,8 +494,11 @@ export function createSelectableObjectSource(options = {}) {
         geometry: feature.geometry,
         sourceAttributes: props.source || {},
         provenance: props.provenance || null,
-        legalNote: "Municipal evaluation unit. Not legal cadastre and not proof of ownership.",
+        legalNote: LEGAL_NOTE,
+        fabric: props.fabric || null,
       };
     },
   };
 }
+
+export { displayLayerForBbox };

@@ -1,0 +1,12 @@
+{
+  "name": "iqai-mtl-uev-data",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "IQAI static spatial package for Ville de Montréal Unités d'évaluation foncière",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "validate:live": "node tests/live-validate.mjs",
+    "serve:proof": "python -m http.server 4173 --directory _site"
+  }
+}

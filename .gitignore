@@ -1,0 +1,13 @@
+cache/
+dist/
+_site/
+__pycache__/
+.pytest_cache/
+node_modules/
+*.pyc
+.DS_Store
+Thumbs.db
+.env
+.env.*
+*.log
+.playwright/

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IQAI — Montréal evaluation units</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.31/esri/themes/dark/main.css" />
+  <link rel="stylesheet" href="./css/proof.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <p class="kicker">IQAI DATA FABRIC</p>
+      <h1>Montréal evaluation units</h1>
+    </div>
+    <p class="legal">Municipal evaluation unit — not legal cadastre, not proof of ownership.</p>
+  </header>
+  <div id="view"></div>
+  <aside id="panel">
+    <section>
+      <h2>Viewport</h2>
+      <pre id="stats">idle</pre>
+    </section>
+    <section>
+      <h2>Selected unit</h2>
+      <pre id="selected">click a polygon</pre>
+    </section>
+    <section>
+      <h2>Provenance</h2>
+      <pre id="provenance">loading…</pre>
+    </section>
+  </aside>
+  <script src="https://js.arcgis.com/4.31/"></script>
+  <script type="module" src="./js/proof.js"></script>
+</body>
+</html>

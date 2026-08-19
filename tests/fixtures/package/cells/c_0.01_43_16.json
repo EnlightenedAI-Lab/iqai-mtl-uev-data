@@ -1,0 +1,49 @@
+{
+  "type": "FeatureCollection",
+  "cell": "c_0.01_43_16",
+  "bbox": [-73.57, 45.50, -73.56, 45.51],
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-73.568, 45.502],
+          [-73.562, 45.502],
+          [-73.562, 45.507],
+          [-73.568, 45.507],
+          [-73.568, 45.502]
+        ]]
+      },
+      "properties": {
+        "object_class": "evaluation_unit",
+        "object_class_label": "EVALUATION UNIT",
+        "unit_count": 2,
+        "source_ids": ["1001", "1002"],
+        "stacked": true,
+        "units": [
+          {
+            "source_id": "1001",
+            "source_id_field": "ID_UEV",
+            "cubf_code": "1000",
+            "cubf_label": "Logement",
+            "category": "Condominium",
+            "civic_from": 1,
+            "street": "rue Sainte-Catherine Ouest",
+            "source": { "ID_UEV": 1001, "NOM_RUE": "rue Sainte-Catherine Ouest" }
+          },
+          {
+            "source_id": "1002",
+            "source_id_field": "ID_UEV",
+            "cubf_code": "1000",
+            "cubf_label": "Logement",
+            "category": "Condominium",
+            "civic_from": 1,
+            "street": "rue Sainte-Catherine Ouest",
+            "source": { "ID_UEV": 1002, "NOM_RUE": "rue Sainte-Catherine Ouest" }
+          }
+        ]
+      }
+    }
+  ]
+}

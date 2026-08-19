@@ -1,0 +1,14 @@
+{
+  "package": "iqai.mtl.evaluation-units.v1",
+  "object_class": "evaluation_unit",
+  "legal_note": "Municipal evaluation unit. Not legal cadastre.",
+  "cells": [
+    {
+      "id": "c_0.01_43_16",
+      "path": "cells/c_0.01_43_16.json",
+      "bbox": [-73.57, 45.50, -73.56, 45.51],
+      "unit_count": 2,
+      "footprint_count": 1
+    }
+  ]
+}
